@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>每日结构化复盘</title>
+    <!-- React & ReactDOM (使用国内镜像加速) -->
+    <script src="https://lib.baomitu.com/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://lib.baomitu.com/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <!-- Babel -->
+    <script src="https://lib.baomitu.com/babel-standalone/7.23.5/babel.min.js"></script>
+    <!-- Day.js -->
+    <script src="https://lib.baomitu.com/dayjs/1.11.10/dayjs.min.js"></script>
+    <!-- Ant Design -->
+    <link rel="stylesheet" href="https://lib.baomitu.com/antd/5.14.0/reset.min.css">
+    <script src="https://lib.baomitu.com/antd/5.14.0/antd.min.js"></script>
+    <script src="https://lib.baomitu.com/ant-design-icons/5.2.6/index.umd.min.js"></script>
+    <!-- Supabase (如果国内访问慢，可以考虑代理或本地存储优先策略) -->
+    <script src="https://lib.baomitu.com/supabase-js/2.39.3/supabase.min.js"></script>
+    
+    <style>
+        body { background-color: #fffbe6; padding: 20px; }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 24px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05); 
+        }
+        .section-title { 
+            margin-top: 24px; 
+            margin-bottom: 16px; 
+            font-weight: bold; 
+            font-size: 16px; 
+            border-left: 4px solid #fa8c16; 
+            padding-left: 8px; 
+            color: #595959;
+        }
+        .plan-item { display: flex; align-items: flex-start; margin-bottom: 8px; gap: 8px; }
+        .plan-item .ant-checkbox-wrapper { margin-top: 5px; }
+        .hidden-textarea { display: none; }
+        .history-item:hover { background-color: #fff7e6; transition: background-color 0.3s; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Tooltip, Spin } = antd;
+        const { Title, Text } = Typography;
+        const { TextArea } = Input;
+        const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined } = icons;
+
+        // --- Hooks ---
+        const useDebounce = (value, delay) => {
+            const [debouncedValue, setDebouncedValue] = useState(value);
+            useEffect(() => {
+                const handler = setTimeout(() => {
+                    setDebouncedValue(value);
+                }, delay);
+                return () => {
+                    clearTimeout(handler);
+                };
+            }, [value, delay]);
+            return debouncedValue;
+        };
+
+        // --- Data Definitions ---
+        const DEFAULT_THEMES = [
+            "工作/事业", "个人成长", "健康/运动", "家庭/关系", "财务/理财", "休闲/娱乐", "社交/人脉", "精神/灵性"
+        ];
+
+        // --- Supabase Config (Auto-injected) ---
+        const SUPABASE_URL = 'https://usytwmlxzyzryzwwfzig.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzeXR3bWx4enl6cnl6d3dmemlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2OTAyNjQsImV4cCI6MjA4NTI2NjI2NH0.ZIqSJZN91Ncu5FGCp4kwHjrOR-2hWeGjVtPiBsTWqCY';
+
+        const STORAGE_KEY_PREFIX = 'daily_review_';
+        const META_KEY = 'daily_review_meta'; // Stores last main/sub theme
+        const THEMES_KEY = 'daily_review_themes';
+
+        // --- Supabase Service ---
+        const getSupabaseClient = () => {
+            try {
+                return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+            } catch (e) { return null; }
+        };
+
+        const supabaseService = {
+            async saveReview(date, data) {
+                const client = getSupabaseClient();
+                if (!client) return { error: 'Supabase 连接失败' };
+                
+                const { data: { user } } = await client.auth.getUser();
+                if (!user) return { error: '未登录，无法同步到云端' };
+
+                return await client.from('daily_reviews').upsert({ 
+                    date: date, 
+                    user_id: user.id, // Ensure user_id is set
+                    content: data,
+                    updated_at: new Date().toISOString()
+                }, { onConflict: 'date,user_id' }); // Update conflict constraint
+            },
+            async getReview(date) {
+                const client = getSupabaseClient();
+                if (!client) return { data: null };
+                
+                // RLS will automatically filter by user
+                const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).maybeSingle();
+                if (error) return { data: null, error };
+                return { data: data?.content };
+            },
+            async getAllReviews() {
+                const client = getSupabaseClient();
+                if (!client) return { data: [] };
+                
+                const { data, error } = await client.from('daily_reviews').select('*').order('date', { ascending: false });
+                if (error) return { data: [], error };
+                return { data: data.map(d => d.content) };
+            },
+            async getLatestReviewBefore(date) {
+                const client = getSupabaseClient();
+                if (!client) return { data: null };
+                
+                const { data, error } = await client
+                    .from('daily_reviews')
+                    .select('content')
+                    .lt('date', date)
+                    .order('date', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                if (error) return { data: null, error };
+                return { data: data?.content };
+            }
+        };
+
+        // --- Auth Component ---
+        const AuthScreen = ({ onLoginSuccess }) => {
+            const [loading, setLoading] = useState(false);
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [isSignUp, setIsSignUp] = useState(false);
+
+            const handleAuth = async () => {
+                if (!email || !password) {
+                    message.warning('请输入邮箱和密码');
+                    return;
+                }
+                setLoading(true);
+                const client = getSupabaseClient();
+                let result;
+                
+                if (isSignUp) {
+                    result = await client.auth.signUp({ email, password });
+                } else {
+                    result = await client.auth.signInWithPassword({ email, password });
+                }
+
+                setLoading(false);
+                
+                if (result.error) {
+                    message.error(result.error.message);
+                } else {
+                    message.success(isSignUp ? '注册成功，已自动登录' : '登录成功');
+                    onLoginSuccess(result.data.user);
+                }
+            };
+
+            return (
+                <div style={{ 
+                    display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', 
+                    background: '#fffbe6' 
+                }}>
+                    <Card style={{ width: 350, borderRadius: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                            <Title level={3} style={{ color: '#fa8c16' }}>每日复盘</Title>
+                            <Text type="secondary">结构化复盘 · 数据云同步</Text>
+                        </div>
+                        
+                        <Space direction="vertical" style={{ width: '100%' }} size="large">
+                            <Input 
+                                placeholder="邮箱" 
+                                value={email} 
+                                onChange={e => setEmail(e.target.value)} 
+                            />
+                            <Input.Password 
+                                placeholder="密码" 
+                                value={password} 
+                                onChange={e => setPassword(e.target.value)} 
+                                onPressEnter={handleAuth}
+                            />
+                            <Button type="primary" block size="large" onClick={handleAuth} loading={loading}>
+                                {isSignUp ? '注册并登录' : '登 录'}
+                            </Button>
+                            <div style={{ textAlign: 'center' }}>
+                                <Button type="link" onClick={() => setIsSignUp(!isSignUp)}>
+                                    {isSignUp ? '已有账号？去登录' : '没有账号？去注册'}
+                                </Button>
+                            </div>
+                        </Space>
+                    </Card>
+                </div>
+            );
+        };
+
+        // --- Utils ---
+        const getTodayStr = () => dayjs().format('YYYY-MM-DD');
+        const getYesterdayStr = () => dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+        
+        // --- Components ---
+
+        const PlanList = ({ title, items, onChange, readOnlyText = false, isTomorrow = false }) => {
+            const addItem = () => {
+                const newItems = [...items, { id: Date.now().toString(), text: '', done: false, note: '' }];
+                onChange(newItems);
+            };
+
+            const updateItem = (id, field, value) => {
+                const newItems = items.map(item => item.id === id ? { ...item, [field]: value } : item);
+                onChange(newItems);
+            };
+
+            const deleteItem = (id) => {
+                onChange(items.filter(item => item.id !== id));
+            };
+
+            return (
+                <div>
+                    <div className="section-title">{title}</div>
+                    {items.map((item, index) => (
+                        <div key={item.id} className="plan-item">
+                            {!isTomorrow && (
+                                <Checkbox 
+                                    checked={item.done} 
+                                    onChange={e => updateItem(item.id, 'done', e.target.checked)}
+                                />
+                            )}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <Input 
+                                    value={item.text} 
+                                    placeholder={isTomorrow ? "输入明日计划事项..." : "事项内容"}
+                                    onChange={e => updateItem(item.id, 'text', e.target.value)}
+                                    // Today's items text usually comes from yesterday, but allow edit if needed
+                                />
+                                {!isTomorrow && (
+                                    <Input 
+                                        size="small"
+                                        placeholder="备注 (如: 完成情况/未完成原因)"
+                                        value={item.note || ''}
+                                        onChange={e => updateItem(item.id, 'note', e.target.value)}
+                                        style={{ color: '#666' }}
+                                    />
+                                )}
+                            </div>
+                            {isTomorrow && (
+                                <Button type="text" danger onClick={() => deleteItem(item.id)}>删除</Button>
+                            )}
+                        </div>
+                    ))}
+                    {isTomorrow && (
+                        <Button type="dashed" block onClick={addItem} style={{ marginTop: 8 }}>
+                            + 添加一项
+                        </Button>
+                    )}
+                    {!isTomorrow && items.length === 0 && <Empty description="无今日计划 (昨未规划)" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [currentDate, setCurrentDate] = useState(getTodayStr());
+            
+            // Check Session on Mount
+            useEffect(() => {
+                const checkSession = async () => {
+                    const client = getSupabaseClient();
+                    if (client) {
+                        const { data: { session } } = await client.auth.getSession();
+                        setUser(session?.user || null);
+                        
+                        client.auth.onAuthStateChange((_event, session) => {
+                            setUser(session?.user || null);
+                        });
+                    }
+                };
+                checkSession();
+            }, []);
+
+            // If not logged in, show Auth Screen
+            if (!user) {
+                return <AuthScreen onLoginSuccess={setUser} />;
+            }
+
+            // State
+            const [todayPlans, setTodayPlans] = useState([]);
+            const [tomorrowPlans, setTomorrowPlans] = useState([]);
+            const [mainTheme, setMainTheme] = useState(null);
+            const [mainThemeNote, setMainThemeNote] = useState('');
+            const [subTheme, setSubTheme] = useState(null);
+            const [subThemeNote, setSubThemeNote] = useState('');
+
+            // Themes State
+            const [themes, setThemes] = useState(DEFAULT_THEMES);
+            const [connectionError, setConnectionError] = useState(null);
+            const [isAutoSaving, setIsAutoSaving] = useState(false);
+
+            // History Modal
+            const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+            const [historyList, setHistoryList] = useState([]);
+
+            // Settings Modal
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [newThemeInput, setNewThemeInput] = useState('');
+
+            // Stats
+            const completionRate = useMemo(() => {
+                if (todayPlans.length === 0) return 0;
+                const doneCount = todayPlans.filter(p => p.done).length;
+                return Math.round((doneCount / todayPlans.length) * 100);
+            }, [todayPlans]);
+
+            // --- Auto Save Logic ---
+            // Combine all form data into one object
+            const formData = useMemo(() => ({
+                date: currentDate,
+                todayPlans,
+                tomorrowPlans,
+                mainTheme,
+                mainThemeNote,
+                subTheme,
+                subThemeNote,
+                updatedAt: Date.now()
+            }), [currentDate, todayPlans, tomorrowPlans, mainTheme, mainThemeNote, subTheme, subThemeNote]);
+
+            // Debounce the form data to avoid frequent writes
+            const debouncedFormData = useDebounce(formData, 1000); // 1 second delay
+
+            // Effect to save to LocalStorage whenever debounced data changes
+            // We use a ref to track if it's the initial load to avoid overwriting with empty state
+            const isInitialLoad = useRef(true);
+            const lastLoadedDataStr = useRef(''); // Track the data we started with
+
+            useEffect(() => {
+                if (isInitialLoad.current || loading || !debouncedFormData.date) {
+                    return;
+                }
+                
+                // CRITICAL: Only save if the date in the debounced data matches the current date
+                if (debouncedFormData.date !== currentDate) {
+                    return;
+                }
+
+                // CHECK: Only save if data actually changed from what we loaded/initialized
+                // Exclude updatedAt from comparison
+                const { updatedAt: _u1, ...currentContent } = debouncedFormData;
+                
+                let startContent = {};
+                try {
+                    const { updatedAt: _u2, ...sc } = JSON.parse(lastLoadedDataStr.current || '{}');
+                    startContent = sc;
+                } catch(e) {}
+
+                if (JSON.stringify(currentContent) === JSON.stringify(startContent)) {
+                    // No actual changes made by user, skip save
+                    return;
+                }
+
+                setIsAutoSaving(true);
+                localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(debouncedFormData));
+                
+                // Update the "last loaded" so subsequent small changes are caught
+                // But we need to be careful. If we update this, we are re-baselining.
+                // Actually, standard debounce pattern is fine, we just want to avoid the FIRST save if nothing changed.
+                // But if we don't update lastLoadedDataStr, the next compare will still be different.
+                // So yes, we should update it? No, wait.
+                // If I type "A", current != start. Save.
+                // If I type "B", current != start. Save. 
+                // This logic holds.
+                
+                // Also update meta if today
+                if (currentDate === getTodayStr()) {
+                    localStorage.setItem(META_KEY, JSON.stringify({
+                        lastMainTheme: mainTheme,
+                        lastSubTheme: subTheme
+                    }));
+                }
+                
+                // Hide saving indicator after a short delay
+                const timer = setTimeout(() => setIsAutoSaving(false), 800);
+                return () => clearTimeout(timer);
+            }, [debouncedFormData, currentDate, loading]);
+
+
+            // Load Data Logic
+            useEffect(() => {
+                const initData = async () => {
+                    setLoading(true);
+                    isInitialLoad.current = true; 
+                    
+                    // --- 1. Reset State ---
+                    setTodayPlans([]);
+                    setTomorrowPlans([]);
+                    setMainTheme(null);
+                    setMainThemeNote('');
+                    setSubTheme(null);
+                    setSubThemeNote('');
+                    
+                    // Load Themes
+                    if (themes === DEFAULT_THEMES) {
+                        const savedThemes = localStorage.getItem(THEMES_KEY);
+                        if (savedThemes) {
+                            setThemes(JSON.parse(savedThemes));
+                        }
+                    }
+
+                    // --- 2. Load Local Data First (Instant Render) ---
+                    let localData = null;
+                    const currentKey = STORAGE_KEY_PREFIX + currentDate;
+                    const savedDataStr = localStorage.getItem(currentKey);
+                    
+                    if (savedDataStr) {
+                        try {
+                            localData = JSON.parse(savedDataStr);
+                        } catch(e) { console.error(e); }
+                    } 
+                    
+                    if (localData) {
+                        setTodayPlans(localData.todayPlans || []);
+                        setTomorrowPlans(localData.tomorrowPlans || []);
+                        setMainTheme(localData.mainTheme || null);
+                        setMainThemeNote(localData.mainThemeNote || '');
+                        setSubTheme(localData.subTheme || null);
+                        setSubThemeNote(localData.subThemeNote || '');
+                    } else {
+                        // --- Inheritance logic (Only if no local data) ---
+                        // ... existing inheritance logic ...
+                        let lastReviewData = null;
+                        const keys = Object.keys(localStorage)
+                            .filter(k => k.startsWith(STORAGE_KEY_PREFIX))
+                            .map(k => k.replace(STORAGE_KEY_PREFIX, ''))
+                            .filter(d => d < currentDate) 
+                            .sort()
+                            .reverse(); 
+
+                        if (keys.length > 0) {
+                            const lastDate = keys[0];
+                            const lastSavedData = localStorage.getItem(STORAGE_KEY_PREFIX + lastDate);
+                            if (lastSavedData) {
+                                try {
+                                    lastReviewData = JSON.parse(lastSavedData);
+                                } catch (e) { console.error(e); }
+                            }
+                        }
+
+                        if (lastReviewData && lastReviewData.tomorrowPlans) {
+                            const inheritedPlans = lastReviewData.tomorrowPlans.map(p => ({
+                                ...p,
+                                id: Date.now().toString() + Math.random(), 
+                                done: false,
+                                note: ''
+                            }));
+                            setTodayPlans(inheritedPlans);
+                            message.info(`已自动从 ${lastReviewData.date} 导入明日计划`);
+                        }
+                        
+                        // Load Meta
+                        if (currentDate === getTodayStr()) {
+                            const metaStr = localStorage.getItem(META_KEY);
+                            if (metaStr) {
+                                const meta = JSON.parse(metaStr);
+                                if (meta.lastMainTheme) setMainTheme(meta.lastMainTheme);
+                                if (meta.lastSubTheme) setSubTheme(meta.lastSubTheme);
+                            }
+                        }
+                    }
+                    
+                    setLoading(false);
+
+                    // --- 3. Immediate Cloud Check (Stale-While-Revalidate) ---
+                    // Don't wait, fire request immediately
+                    const checkCloud = async () => {
+                        const { data: cloudContent, error } = await supabaseService.getReview(currentDate);
+                        
+                        if (cloudContent) {
+                            // Logic: If cloud has data, and it looks "better" or we are just opening the page, USE IT.
+                            // To be safe: If local is "draft/inherited" (no theme) and cloud has theme -> Cloud wins.
+                            // If local matches cloud -> No op.
+                            // If local differs -> 
+                            //    If local was just "auto-generated" (we can guess this), overwrite.
+                            //    Otherwise, maybe prompt? For now, User said "Open -> Load Cloud". So we overwrite if different.
+                            
+                            const localStr = localStorage.getItem(currentKey);
+                            let currentLocal = localStr ? JSON.parse(localStr) : null;
+                            
+                            // Simple Deep Equal Check (ignoring updatedAt)
+                            const { updatedAt: u1, ...c1 } = cloudContent;
+                            const { updatedAt: u2, ...c2 } = currentLocal || {};
+                            
+                            if (JSON.stringify(c1) !== JSON.stringify(c2)) {
+                                // Data differs.
+                                // If local is "weak" (no theme) and cloud is "strong" (has theme), definitely overwrite.
+                                const localIsWeak = !currentLocal || (!currentLocal.mainTheme && !currentLocal.subTheme);
+                                const cloudIsStrong = !!cloudContent.mainTheme || !!cloudContent.subTheme;
+                                
+                                // Also if local is basically empty/inherited only
+                                // We'll just overwrite to be safe as per user request "Open -> Cloud"
+                                // We assume user hasn't made edits in the last 0.5 seconds since opening.
+                                
+                                console.log('Cloud data found and differs from local. Syncing...');
+                                
+                                // Update State
+                                setTodayPlans(cloudContent.todayPlans || []);
+                                setTomorrowPlans(cloudContent.tomorrowPlans || []);
+                                setMainTheme(cloudContent.mainTheme || null);
+                                setMainThemeNote(cloudContent.mainThemeNote || '');
+                                setSubTheme(cloudContent.subTheme || null);
+                                setSubThemeNote(cloudContent.subThemeNote || '');
+                                
+                                // Update Local Storage
+                                localStorage.setItem(currentKey, JSON.stringify(cloudContent));
+                                
+                                message.success('已加载云端最新复盘数据');
+                                
+                                // Update snapshot to prevent auto-save triggering immediately
+                                lastLoadedDataStr.current = JSON.stringify({
+                                    date: currentDate,
+                                    ...cloudContent
+                                });
+                            }
+                        }
+                    };
+                    
+                    checkCloud();
+
+                    // Snapshot for auto-save logic
+                    setTimeout(() => {
+                        isInitialLoad.current = false;
+                        // We also need to capture snapshot here if checkCloud hasn't finished yet
+                        // But checkCloud might update it later.
+                    }, 1000);
+                };
+                initData();
+            }, [currentDate]);
+
+            // Capture initial state for change detection
+            useEffect(() => {
+                if (!loading && !isInitialLoad.current) {
+                   // This runs whenever loading finishes, but also on every render if we are not careful.
+                   // We only want to set this ONCE after loading flips to false.
+                }
+            }, [loading]);
+            
+            // Better approach: Update lastLoadedDataStr inside the main useEffect's timeout
+            // But we don't have access to the *final* state there easily.
+            // Let's use a separate effect that depends on 'loading'.
+            useEffect(() => {
+                if (!loading) {
+                    // When loading finishes, snapshot the current form data
+                    lastLoadedDataStr.current = JSON.stringify(formData);
+                }
+            }, [loading]); // When loading becomes false, we snapshot. 
+            // Note: formData will be the initial state at that moment.
+
+            // --- ONE-TIME SYNC ON MOUNT ---
+            useEffect(() => {
+                const syncRecentData = async () => {
+                    // Only run if Supabase is configured
+                    const client = getSupabaseClient();
+                    if (!client) return;
+
+                    try {
+                        // Fetch recent 30 days of data
+                        const { data, error } = await client
+                            .from('daily_reviews')
+                            .select('*')
+                            .order('date', { ascending: false })
+                            .limit(30);
+
+                        if (error) throw error;
+
+                        if (data && data.length > 0) {
+                            let newCount = 0;
+                            let updateCount = 0;
+                            let currentUpdated = false;
+
+                            data.forEach(record => {
+                                const key = STORAGE_KEY_PREFIX + record.date;
+                                const localStr = localStorage.getItem(key);
+                                let shouldUpdate = false;
+
+                                if (!localStr) {
+                                    shouldUpdate = true;
+                                    newCount++;
+                                } else {
+                                    try {
+                                        const localData = JSON.parse(localStr);
+                                        const remoteData = record.content;
+                                        
+                                        // 1. Check if local is effectively "empty"
+                                        const localEmpty = (!localData.todayPlans || localData.todayPlans.length === 0) && 
+                                                           (!localData.mainTheme);
+                                        const remoteHasContent = (remoteData.todayPlans && remoteData.todayPlans.length > 0) || 
+                                                                 (remoteData.mainTheme);
+                                        
+                                        // 2. Check timestamps
+                                        const localTime = localData.updatedAt || 0;
+                                        const remoteTime = new Date(record.updated_at).getTime();
+                                        
+                                        // 3. Priority Heuristics
+                                        const localLen = JSON.stringify(localData).length;
+                                        const remoteLen = JSON.stringify(remoteData).length;
+                                        
+                                        // Rule A: "Theme Authority" - If remote has a main theme and local doesn't, Remote wins.
+                                        // This handles the case where local is an auto-generated draft (has plans but no theme).
+                                        const remoteHasTheme = !!remoteData.mainTheme;
+                                        const localHasTheme = !!localData.mainTheme;
+
+                                        if (localEmpty && remoteHasContent) {
+                                            shouldUpdate = true;
+                                            updateCount++;
+                                        } else if (remoteTime > localTime + 60000) { 
+                                            shouldUpdate = true;
+                                            updateCount++;
+                                        } else if (remoteHasTheme && !localHasTheme) {
+                                            // Strong signal: Remote is a "Review", Local is just a "Plan List"
+                                            shouldUpdate = true;
+                                            updateCount++;
+                                            console.log('Force syncing: Remote has theme, local does not');
+                                        } else if (remoteLen > localLen + 50) {
+                                            // Rule B: "Content Weight" - If remote is significantly larger (>50 chars), Remote wins.
+                                            // We removed the time constraint to rescue older "bad states".
+                                            shouldUpdate = true;
+                                            updateCount++;
+                                            console.log('Force syncing: Remote is significantly larger');
+                                        }
+                                    } catch(e) {
+                                        shouldUpdate = true; // Local corrupted
+                                    }
+                                }
+
+                                if (shouldUpdate) {
+                                    localStorage.setItem(key, JSON.stringify(record.content));
+                                    if (record.date === currentDate) {
+                                        currentUpdated = true;
+                                    }
+                                }
+                            });
+
+                            if (newCount > 0 || updateCount > 0) {
+                                message.success(`云端同步完成：新增 ${newCount} 条，更新 ${updateCount} 条`);
+                                // If current viewing date was updated, we need to refresh the view manually
+                                // because React state won't pick up localStorage changes automatically
+                                if (currentUpdated) {
+                                    // Trigger a re-read
+                                    // We can do this by toggling loading or calling a refresh function
+                                    // A simple way is to force a state update on a dummy variable or re-call initData logic
+                                    // But initData is inside useEffect[currentDate].
+                                    // Let's just reload the page or ask user to refresh? 
+                                    // Better: set a flag to force reload.
+                                    // Actually, we can just trigger window.location.reload() if it's the first load, 
+                                    // but that's bad UX.
+                                    // Let's show a message asking to refresh if critical data changed.
+                                    message.info('当前日期数据有更新，页面将自动刷新...');
+                                    setTimeout(() => window.location.reload(), 1000);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Background sync failed', e);
+                    }
+                };
+                
+                // Delay sync slightly
+                setTimeout(syncRecentData, 1500);
+            }, []);
+
+            const handleSave = async () => {
+                const data = {
+                    date: currentDate,
+                    todayPlans,
+                    tomorrowPlans,
+                    mainTheme,
+                    mainThemeNote,
+                    subTheme,
+                    subThemeNote,
+                    updatedAt: Date.now()
+                };
+                
+                // 1. Save Local
+                localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
+                
+                // 2. Save Meta (only if saving for today)
+                if (currentDate === getTodayStr()) {
+                    localStorage.setItem(META_KEY, JSON.stringify({
+                        lastMainTheme: mainTheme,
+                        lastSubTheme: subTheme
+                    }));
+                }
+
+                // 3. Save Supabase (Auto-connected)
+                const { error } = await supabaseService.saveReview(currentDate, data);
+                if (error) {
+                    message.warning('本地保存成功，但云端同步失败: ' + error.message);
+                } else {
+                    message.success('复盘已成功保存并同步至云端');
+                }
+            };
+
+            const loadHistory = async () => {
+                let list = [];
+                
+                // Try remote first
+                const { data, error } = await supabaseService.getAllReviews();
+                if (!error && data && data.length > 0) {
+                    list = data;
+                }
+
+                if (list.length === 0) {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(STORAGE_KEY_PREFIX)) {
+                            try {
+                                const data = JSON.parse(localStorage.getItem(key));
+                                list.push(data);
+                            } catch(e){}
+                        }
+                    }
+                    list.sort((a, b) => b.date.localeCompare(a.date));
+                }
+
+                setHistoryList(list);
+                setIsHistoryOpen(true);
+            };
+
+            const jumpToDate = (date) => {
+                setCurrentDate(date);
+                setIsHistoryOpen(false);
+            };
+
+            const exportData = async () => {
+                let allData = [];
+                const { data } = await supabaseService.getAllReviews();
+                if (data && data.length > 0) {
+                    allData = data;
+                } else {
+                      for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key.startsWith(STORAGE_KEY_PREFIX)) {
+                            try {
+                                allData.push(JSON.parse(localStorage.getItem(key)));
+                            } catch(e){}
+                        }
+                    }
+                }
+
+                if (allData.length === 0) {
+                    message.info('暂无数据可导出');
+                    return;
+                }
+
+                const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `daily_review_backup_${getTodayStr()}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                message.success('导出成功');
+            };
+
+            const addTheme = () => {
+                if (!newThemeInput.trim()) return;
+                if (themes.includes(newThemeInput.trim())) {
+                    message.warning('主题已存在');
+                    return;
+                }
+                const newThemes = [...themes, newThemeInput.trim()];
+                setThemes(newThemes);
+                localStorage.setItem(THEMES_KEY, JSON.stringify(newThemes));
+                setNewThemeInput('');
+                message.success('添加成功');
+            };
+
+            const removeTheme = (themeToRemove) => {
+                const newThemes = themes.filter(t => t !== themeToRemove);
+                setThemes(newThemes);
+                localStorage.setItem(THEMES_KEY, JSON.stringify(newThemes));
+            };
+
+            const themeOptions = themes.map(t => ({ label: t, value: t }));
+
+            return (
+                <div className="container">
+                    <Spin spinning={loading} tip="加载中...">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <Title level={3} style={{ margin: 0 }}>📅 每日结构化复盘</Title>
+                        <Space>
+                            {isAutoSaving && <Text type="secondary" style={{ fontSize: 12 }}><Spin size="small" style={{ marginRight: 4 }} /> 自动保存中...</Text>}
+                            <span style={{ fontSize: 12, color: '#999' }}>{user.email}</span>
+                            <Button type="text" danger onClick={() => getSupabaseClient().auth.signOut()}>退出</Button>
+                            <Button icon={<SettingOutlined />} onClick={() => setIsSettingsOpen(true)}>设置</Button>
+                            <Button icon={<ExportOutlined />} onClick={exportData}>导出</Button>
+                            <Button icon={<HistoryOutlined />} onClick={loadHistory} type="primary" ghost>历史记录</Button>
+                        </Space>
+                    </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20, background: '#fff7e6', padding: '12px 16px', borderRadius: 8 }}>
+                            <Space direction="vertical" size={4}>
+                                <Text type="secondary" size="small">复盘日期</Text>
+                                <Space>
+                                    <Button 
+                                        icon={<LeftOutlined />} 
+                                        onClick={() => setCurrentDate(dayjs(currentDate).subtract(1, 'day').format('YYYY-MM-DD'))} 
+                                    />
+                                    <DatePicker 
+                                        value={dayjs(currentDate)} 
+                                        onChange={(date) => setCurrentDate(date ? date.format('YYYY-MM-DD') : getTodayStr())}
+                                        allowClear={false}
+                                    />
+                                    <Button 
+                                        icon={<RightOutlined />} 
+                                        onClick={() => setCurrentDate(dayjs(currentDate).add(1, 'day').format('YYYY-MM-DD'))} 
+                                    />
+                                    {currentDate !== getTodayStr() && (
+                                        <Button onClick={() => setCurrentDate(getTodayStr())}>回到今天</Button>
+                                    )}
+                                </Space>
+                            </Space>
+                            
+                            <div style={{ textAlign: 'right' }}>
+                                <Text type="secondary" size="small" style={{ display: 'block', marginBottom: 4 }}>今日计划完成率</Text>
+                                <Progress 
+                                    type="circle" 
+                                    percent={completionRate} 
+                                    size={40} 
+                                    strokeColor={completionRate === 100 ? '#52c41a' : '#fa8c16'}
+                                />
+                            </div>
+                        </div>
+
+                        {connectionError && (
+                            <Tag color="red" style={{ marginBottom: 16 }} title={connectionError}>
+                                云端同步异常: {connectionError.slice(0, 30)}...
+                            </Tag>
+                        )}
+
+                        {/* 1. 今日计划完成情况 */}
+                        <PlanList 
+                            title="1. 今日计划完成情况 (来自昨日规划)" 
+                            items={todayPlans} 
+                            onChange={setTodayPlans}
+                            isTomorrow={false}
+                        />
+
+                        {/* 2. 明日计划完成事项 */}
+                        <PlanList 
+                            title="2. 明日计划完成事项" 
+                            items={tomorrowPlans} 
+                            onChange={setTomorrowPlans}
+                            isTomorrow={true}
+                        />
+
+                        {/* 3. 主题觉察 */}
+                        <div className="section-title">3. 主题觉察</div>
+                        
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ marginBottom: 8 }}>
+                                <Text strong>主主题 (选填)</Text>
+                                <span style={{ marginLeft: 8, fontSize: 12, color: '#999' }}>默认选中上次提交的主题</span>
+                            </div>
+                            <Select
+                                style={{ width: '100%', marginBottom: 8 }}
+                                placeholder="选择或搜索主主题"
+                                showSearch
+                                allowClear
+                                options={themeOptions}
+                                value={mainTheme}
+                                onChange={setMainTheme}
+                            />
+                            <TextArea 
+                                rows={4} 
+                                placeholder="输入主主题觉察内容..." 
+                                value={mainThemeNote}
+                                onChange={e => setMainThemeNote(e.target.value)}
+                            />
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                            <div style={{ marginBottom: 8 }}>
+                                <Text strong>副主题 (选填)</Text>
+                                <span style={{ marginLeft: 8, fontSize: 12, color: '#999' }}>默认选中上次提交的主题</span>
+                            </div>
+                            <Select
+                                style={{ width: '100%', marginBottom: 8 }}
+                                placeholder="选择或搜索副主题"
+                                showSearch
+                                allowClear
+                                options={themeOptions}
+                                value={subTheme}
+                                onChange={setSubTheme}
+                            />
+                            <TextArea 
+                                rows={4} 
+                                placeholder="输入副主题觉察内容..." 
+                                value={subThemeNote}
+                                onChange={e => setSubThemeNote(e.target.value)}
+                            />
+                        </div>
+
+                        <Button type="primary" size="large" block icon={<CheckCircleOutlined />} onClick={handleSave} style={{ marginTop: 24, height: 50, fontSize: 18 }}>
+                            提 交 复 盘
+                        </Button>
+                    </Spin>
+
+                    {/* 历史记录弹窗 */}
+                    <Modal 
+                        title="历史复盘记录" 
+                        open={isHistoryOpen} 
+                        onCancel={() => setIsHistoryOpen(false)}
+                        footer={null}
+                        width={600}
+                    >
+                        <List
+                            dataSource={historyList}
+                            renderItem={item => (
+                                <List.Item 
+                                    style={{ cursor: 'pointer' }} 
+                                    onClick={() => jumpToDate(item.date)}
+                                    className="history-item"
+                                >
+                                    <div style={{ width: '100%' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold' }}>
+                                            <span>{item.date} {item.date === getTodayStr() ? <Tag color="orange">今天</Tag> : null}</span>
+                                            <span>
+                                                {item.mainTheme && <Tag color="blue">{item.mainTheme}</Tag>}
+                                                {item.subTheme && <Tag color="cyan">{item.subTheme}</Tag>}
+                                            </span>
+                                        </div>
+                                        <div style={{ marginTop: 8, color: '#666', fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+                                            <span>今日完成: {item.todayPlans?.filter(p=>p.done).length}/{item.todayPlans?.length}</span>
+                                            <span>点击查看详情</span>
+                                        </div>
+                                    </div>
+                                </List.Item>
+                            )}
+                        />
+                    </Modal>
+
+                    {/* 设置弹窗 */}
+                    <Modal
+                        title="设置"
+                        open={isSettingsOpen}
+                        onCancel={() => setIsSettingsOpen(false)}
+                        footer={[
+                            <Button key="back" onClick={() => setIsSettingsOpen(false)}>关闭</Button>
+                        ]}
+                    >
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                            {/* 主题管理 */}
+                            <div>
+                                <Title level={5} style={{ marginTop: 0 }}>🏷️ 主题库管理</Title>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                                    <Input 
+                                        placeholder="输入新主题名称" 
+                                        value={newThemeInput}
+                                        onChange={e => setNewThemeInput(e.target.value)}
+                                        onPressEnter={addTheme}
+                                        prefix={<PlusOutlined style={{ color: '#ccc' }} />}
+                                    />
+                                    <Button type="primary" onClick={addTheme}>添加</Button>
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {themes.map(tag => (
+                                        <Tag 
+                                            key={tag} 
+                                            closable 
+                                            onClose={(e) => {
+                                                e.preventDefault();
+                                                removeTheme(tag);
+                                            }}
+                                            color="blue"
+                                        >
+                                            {tag}
+                                        </Tag>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </Modal>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(
+            <antd.ConfigProvider 
+                locale={antd.locale?.zhCN}
+                theme={{
+                    token: {
+                        colorPrimary: '#fa8c16',
+                        borderRadius: 8,
+                    },
+                }}
+            >
+                <App />
+            </antd.ConfigProvider>
+        );
+    </script>
+</body>
+</html>
