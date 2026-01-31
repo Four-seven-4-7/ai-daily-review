@@ -100,7 +100,11 @@
         const getDeviceId = () => {
             let id = localStorage.getItem('daily_review_device_id');
             if (!id) {
-                id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+                // 生成符合 UUID v4 格式的随机字符串，确保数据库能够接受
+                id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                    var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                    return v.toString(16);
+                });
                 localStorage.setItem('daily_review_device_id', id);
             }
             return id;
