@@ -13,9 +13,9 @@
     <!-- Ant Design -->
     <link rel="stylesheet" href="https://cdn.staticfile.net/antd/5.14.0/reset.min.css">
     <script src="https://cdn.staticfile.net/antd/5.14.0/antd.min.js"></script>
-    <!-- 使用 jsDelivr 保证路径准确性，配合国内镜像预热 -->
-    <script src="https://cdn.jsdelivr.net/npm/@ant-design/icons@5.2.6/dist/index.umd.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.3/dist/umd/supabase.js"></script>
+    <script src="https://cdn.staticfile.net/ant-design-icons/5.2.6/index.umd.min.js"></script>
+    <!-- Supabase -->
+    <script src="https://cdn.staticfile.net/supabase/2.39.3/supabase.min.js"></script>
     
     <style>
         body { background-color: #fffbe6; padding: 20px; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
@@ -48,6 +48,25 @@
         <div class="skeleton-line" style="width: 200px;"></div>
         <div class="skeleton-block"></div>
     </div>
+
+    <!-- 错误处理脚本 -->
+    <script>
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            if (msg.indexOf('ReactDOM is not defined') > -1 || msg.indexOf('React is not defined') > -1) {
+                const root = document.getElementById('root');
+                root.innerHTML = `
+                    <div style="padding: 20px; text-align: center; background: white; margin: 20px; border-radius: 8px; border: 1px solid #ffa39e;">
+                        <h3 style="color: #cf1322;">页面加载失败</h3>
+                        <p>由于网络限制或浏览器安全设置（如“跟踪防护”），核心库加载失败。</p>
+                        <p style="font-size: 14px; color: #666;">建议：请尝试关闭浏览器的“跟踪防护”或使用 Chrome 浏览器打开。</p>
+                        <button onclick="location.reload()" style="padding: 8px 16px; background: #fa8c16; color: white; border: none; border-radius: 4px; cursor: pointer;">重新加载</button>
+                    </div>
+                `;
+                document.getElementById('static-skeleton').style.display = 'none';
+            }
+            return false;
+        };
+    </script>
 
     <script type="text/babel">
         // 核心纠错：确保库已加载
