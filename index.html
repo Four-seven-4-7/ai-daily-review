@@ -107,9 +107,16 @@
         };
 
         const supabaseService = {
+            getClient() {
+                if (window.supabase) return window.supabase;
+                console.error('Supabase SDK not loaded');
+                return null;
+            },
             async saveReview(date, data) {
                 try {
-                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const sb = this.getClient();
+                    if (!sb) throw new Error('云端服务未就绪(SDK加载失败)');
+                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                     return await client.from('daily_reviews').upsert({ 
                         date, user_id: getDeviceId(), content: data, updated_at: new Date().toISOString() 
                     }, { onConflict: 'date,user_id' });
@@ -117,14 +124,18 @@
             },
             async getReview(date) {
                 try {
-                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const sb = this.getClient();
+                    if (!sb) throw new Error('云端服务未就绪');
+                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                     const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).eq('user_id', getDeviceId()).maybeSingle();
                     return { data: data?.content, error };
                 } catch(e) { return { error: e }; }
             },
             async getAllReviews() {
                 try {
-                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const sb = this.getClient();
+                    if (!sb) throw new Error('云端服务未就绪');
+                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                     const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false });
                     return { data: data?.map(d => d.content), error };
                 } catch(e) { return { error: e }; }
@@ -245,7 +256,8 @@
                         }
                     }
                     setLoading(false);
-                    setStatus('本地数据已就绪');
+                    const isCloudReady = !!window.supabase;
+                    setStatus(isCloudReady ? '本地数据已就绪' : '本地就绪(云端服务未连接)');
                     setTimeout(() => isInitialLoad.current = false, 500);
                 };
                 init();
