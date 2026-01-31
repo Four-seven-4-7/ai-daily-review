@@ -151,6 +151,7 @@
             const [historyList, setHistoryList] = useState([]);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [newThemeInput, setNewThemeInput] = useState('');
+            const [status, setStatus] = useState('就绪');
 
             const completionRate = useMemo(() => {
                 if (todayPlans.length === 0) return 0;
@@ -217,6 +218,7 @@
                     const skeleton = document.getElementById('static-skeleton');
                     if (skeleton) skeleton.style.display = 'none';
                     setLoading(false);
+                    setStatus('本地数据已就绪');
                     setTimeout(() => isInitialLoad.current = false, 500);
                 };
                 init();
@@ -224,28 +226,53 @@
 
             const handleSave = async () => {
                 const data = { ...formData, updatedAt: Date.now() };
+                // 1. 立即存本地，无延迟
                 localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
-                setSyncLoading(true);
-                const { error } = await supabaseService.saveReview(currentDate, data);
-                setSyncLoading(false);
-                if (error) message.warning('本地已存，云端同步失败'); else message.success('已同步至云端');
+                lastLoadedDataStr.current = JSON.stringify(data);
+                
+                // 2. 静默后台同步，不显示遮罩，不阻塞UI
+                setSyncLoading(true); 
+                setStatus('云端同步中...');
+                
+                supabaseService.saveReview(currentDate, data).then(({ error }) => {
+                    setSyncLoading(false);
+                    if (error) {
+                        console.warn('Cloud sync failed', error);
+                        setStatus('同步失败(已存本地)');
+                    } else {
+                        setStatus('已同步至云端 ' + dayjs().format('HH:mm:ss'));
+                    }
+                });
             };
 
             const handlePull = async () => {
+                setStatus('正在尝试从云端获取...');
                 setSyncLoading(true);
                 const { data, error } = await supabaseService.getReview(currentDate);
                 setSyncLoading(false);
-                if (error) message.error('拉取失败');
-                else if (!data) message.info('云端暂无数据');
+                
+                if (error) {
+                    setStatus('同步失败');
+                    message.error('无法连接到云端');
+                }
+                else if (!data) {
+                    setStatus('云端无此日期数据');
+                    message.info('云端暂无该日期数据');
+                }
                 else {
                     Modal.confirm({
-                        title: '确认覆盖本地数据?',
+                        title: '确认从云端覆盖本地?',
+                        content: '这会替换您当前在页面上看到的内容。',
                         onOk: () => {
-                            setTodayPlans(data.todayPlans || []); setTomorrowPlans(data.tomorrowPlans || []);
-                            setMainTheme(data.mainTheme || null); setMainThemeNote(data.mainThemeNote || '');
-                            setSubTheme(data.subTheme || null); setSubThemeNote(data.subThemeNote || '');
+                            setTodayPlans(data.todayPlans || []); 
+                            setTomorrowPlans(data.tomorrowPlans || []);
+                            setMainTheme(data.mainTheme || null); 
+                            setMainThemeNote(data.mainThemeNote || '');
+                            setSubTheme(data.subTheme || null); 
+                            setSubThemeNote(data.subThemeNote || '');
                             localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
                             lastLoadedDataStr.current = JSON.stringify(data);
+                            setStatus('云端覆盖成功');
                         }
                     });
                 }
@@ -276,6 +303,7 @@
                         <Title level={3} style={{ margin: 0 }}>📅 每日结构化复盘</Title>
                         <Space>
                             {isAutoSaving && <Text type="secondary" style={{ fontSize: 12 }}><Spin size="small" /> 自动保存中...</Text>}
+                            <Text type="secondary" style={{ fontSize: 12, marginRight: 10 }}>{status}</Text>
                             <Button icon={<CloudDownloadOutlined />} onClick={handlePull} loading={syncLoading}>云端拉取</Button>
                             <Button icon={<SettingOutlined />} onClick={() => setIsSettingsOpen(true)}>设置</Button>
                             <Button icon={<ExportOutlined />} onClick={exportData}>导出</Button>
