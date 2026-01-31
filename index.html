@@ -48,19 +48,34 @@
     </div>
 
     <script type="text/babel">
-        // 紧急纠错：确保图标库正确加载
+        // 核心纠错：确保库已加载
         const Icons = window.icons || {};
         const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined, CloudDownloadOutlined } = Icons;
 
         const { useState, useEffect, useMemo, useRef } = React;
-        const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Spin } = antd;
+        const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Spin, Tooltip } = antd;
         const { Title, Text } = Typography;
         const { TextArea } = Input;
 
+        // --- Config ---
         const SUPABASE_URL = 'https://usytwmlxzyzryzwwfzig.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzeXR3bWx4enl6cnl6d3dmemlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2OTAyNjQsImV4cCI6MjA4NTI2NjI2NH0.ZIqSJZN91Ncu5FGCp4kwHjrOR-2hWeGjVtPiBsTWqCY';
         const STORAGE_KEY_PREFIX = 'daily_review_';
+        const META_KEY = 'daily_review_meta';
+        const THEMES_KEY = 'daily_review_themes';
+        const DEFAULT_THEMES = ["工作/事业", "个人成长", "健康/运动", "家庭/关系", "财务/理财", "休闲/娱乐", "社交/人脉", "精神/灵性"];
 
+        // --- Hooks ---
+        const useDebounce = (value, delay) => {
+            const [debouncedValue, setDebouncedValue] = useState(value);
+            useEffect(() => {
+                const handler = setTimeout(() => setDebouncedValue(value), delay);
+                return () => clearTimeout(handler);
+            }, [value, delay]);
+            return debouncedValue;
+        };
+
+        // --- Services ---
         const getDeviceId = () => {
             let id = localStorage.getItem('daily_review_device_id');
             if (!id) {
@@ -75,10 +90,7 @@
                 try {
                     const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
                     return await client.from('daily_reviews').upsert({ 
-                        date, 
-                        user_id: getDeviceId(), 
-                        content: data, 
-                        updated_at: new Date().toISOString() 
+                        date, user_id: getDeviceId(), content: data, updated_at: new Date().toISOString() 
                     }, { onConflict: 'date,user_id' });
                 } catch(e) { return { error: e }; }
             },
@@ -88,70 +100,174 @@
                     const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).eq('user_id', getDeviceId()).maybeSingle();
                     return { data: data?.content, error };
                 } catch(e) { return { error: e }; }
+            },
+            async getAllReviews() {
+                try {
+                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false });
+                    return { data: data?.map(d => d.content), error };
+                } catch(e) { return { error: e }; }
             }
         };
 
-        const PlanList = ({ title, items, onChange, isTomorrow = false }) => (
-            <div>
-                <div className="section-title">{title}</div>
-                {items.map(item => (
-                    <div key={item.id} className="plan-item">
-                        {!isTomorrow && <Checkbox checked={item.done} onChange={e => onChange(items.map(i => i.id === item.id ? {...i, done: e.target.checked} : i))} />}
-                        <Input value={item.text} placeholder="事项内容" onChange={e => onChange(items.map(i => i.id === item.id ? {...i, text: e.target.value} : i))} />
-                        {isTomorrow && <Button type="text" danger onClick={() => onChange(items.filter(i => i.id !== item.id))} icon={<DeleteOutlined />} />}
-                    </div>
-                ))}
-                {isTomorrow && <Button type="dashed" block onClick={() => onChange([...items, {id: Date.now().toString(), text: '', done: false}])} icon={<PlusOutlined />}>添加计划</Button>}
-                {!isTomorrow && items.length === 0 && <Empty description="今日暂无计划" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
-            </div>
-        );
+        // --- Components ---
+        const PlanList = ({ title, items, onChange, isTomorrow = false }) => {
+            const updateItem = (id, field, value) => {
+                onChange(items.map(i => i.id === id ? { ...i, [field]: value } : i));
+            };
+            return (
+                <div>
+                    <div className="section-title">{title}</div>
+                    {items.map(item => (
+                        <div key={item.id} className="plan-item">
+                            {!isTomorrow && <Checkbox checked={item.done} onChange={e => updateItem(item.id, 'done', e.target.checked)} />}
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <Input value={item.text} placeholder={isTomorrow ? "输入明日计划..." : "事项内容"} onChange={e => updateItem(item.id, 'text', e.target.value)} />
+                                {!isTomorrow && <Input size="small" placeholder="备注" value={item.note || ''} onChange={e => updateItem(item.id, 'note', e.target.value)} style={{ color: '#666' }} />}
+                            </div>
+                            {isTomorrow && <Button type="text" danger onClick={() => onChange(items.filter(i => i.id !== item.id))} icon={<DeleteOutlined />} />}
+                        </div>
+                    ))}
+                    {isTomorrow && <Button type="dashed" block onClick={() => onChange([...items, {id: Date.now().toString(), text: '', done: false, note: ''}])} icon={<PlusOutlined />}>添加事项</Button>}
+                    {!isTomorrow && items.length === 0 && <Empty description="今日暂无计划" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
+                </div>
+            );
+        };
 
         const App = () => {
             const [loading, setLoading] = useState(true);
+            const [syncLoading, setSyncLoading] = useState(false);
             const [currentDate, setCurrentDate] = useState(dayjs().format('YYYY-MM-DD'));
+            
             const [todayPlans, setTodayPlans] = useState([]);
             const [tomorrowPlans, setTomorrowPlans] = useState([]);
-            const [mainTheme, setMainTheme] = useState('');
+            const [mainTheme, setMainTheme] = useState(null);
+            const [mainThemeNote, setMainThemeNote] = useState('');
+            const [subTheme, setSubTheme] = useState(null);
+            const [subThemeNote, setSubThemeNote] = useState('');
+            const [themes, setThemes] = useState(DEFAULT_THEMES);
+            const [isAutoSaving, setIsAutoSaving] = useState(false);
+            const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+            const [historyList, setHistoryList] = useState([]);
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [newThemeInput, setNewThemeInput] = useState('');
 
+            const completionRate = useMemo(() => {
+                if (todayPlans.length === 0) return 0;
+                return Math.round((todayPlans.filter(p => p.done).length / todayPlans.length) * 100);
+            }, [todayPlans]);
+
+            const formData = useMemo(() => ({
+                date: currentDate, todayPlans, tomorrowPlans, mainTheme, mainThemeNote, subTheme, subThemeNote, updatedAt: Date.now()
+            }), [currentDate, todayPlans, tomorrowPlans, mainTheme, mainThemeNote, subTheme, subThemeNote]);
+
+            const debouncedFormData = useDebounce(formData, 1000);
+            const isInitialLoad = useRef(true);
+            const lastLoadedDataStr = useRef('');
+
+            // Auto-save logic
             useEffect(() => {
-                const skeleton = document.getElementById('static-skeleton');
-                if (skeleton) skeleton.style.display = 'none';
-                setLoading(false);
-                loadLocalData(currentDate);
+                if (isInitialLoad.current || loading) return;
+                const { updatedAt: _u1, ...currentContent } = debouncedFormData;
+                let startContent = {};
+                try { startContent = JSON.parse(lastLoadedDataStr.current || '{}'); delete startContent.updatedAt; } catch(e) {}
+                
+                if (JSON.stringify(currentContent) === JSON.stringify(startContent)) return;
+
+                setIsAutoSaving(true);
+                localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(debouncedFormData));
+                if (currentDate === dayjs().format('YYYY-MM-DD')) {
+                    localStorage.setItem(META_KEY, JSON.stringify({ lastMainTheme: mainTheme, lastSubTheme: subTheme }));
+                }
+                setTimeout(() => setIsAutoSaving(false), 800);
+            }, [debouncedFormData]);
+
+            // Init data
+            useEffect(() => {
+                const init = async () => {
+                    setLoading(true);
+                    isInitialLoad.current = true;
+                    
+                    // Reset
+                    setTodayPlans([]); setTomorrowPlans([]); setMainTheme(null); setMainThemeNote(''); setSubTheme(null); setSubThemeNote('');
+                    
+                    const savedThemes = localStorage.getItem(THEMES_KEY);
+                    if (savedThemes) setThemes(JSON.parse(savedThemes));
+
+                    const localStr = localStorage.getItem(STORAGE_KEY_PREFIX + currentDate);
+                    if (localStr) {
+                        const d = JSON.parse(localStr);
+                        setTodayPlans(d.todayPlans || []); setTomorrowPlans(d.tomorrowPlans || []);
+                        setMainTheme(d.mainTheme || null); setMainThemeNote(d.mainThemeNote || '');
+                        setSubTheme(d.subTheme || null); setSubThemeNote(d.subThemeNote || '');
+                        lastLoadedDataStr.current = localStr;
+                    } else {
+                        // Inheritance
+                        const keys = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => k.replace(STORAGE_KEY_PREFIX, '')).filter(d => d < currentDate).sort().reverse();
+                        if (keys.length > 0) {
+                            const lastData = JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + keys[0]));
+                            if (lastData.tomorrowPlans) setTodayPlans(lastData.tomorrowPlans.map(p => ({ ...p, id: Date.now() + Math.random(), done: false, note: '' })));
+                        }
+                        const meta = JSON.parse(localStorage.getItem(META_KEY) || '{}');
+                        if (meta.lastMainTheme) setMainTheme(meta.lastMainTheme);
+                        if (meta.lastSubTheme) setSubTheme(meta.lastSubTheme);
+                        lastLoadedDataStr.current = JSON.stringify({});
+                    }
+
+                    const skeleton = document.getElementById('static-skeleton');
+                    if (skeleton) skeleton.style.display = 'none';
+                    setLoading(false);
+                    setTimeout(() => isInitialLoad.current = false, 500);
+                };
+                init();
             }, [currentDate]);
 
-            const loadLocalData = (date) => {
-                const saved = localStorage.getItem(STORAGE_KEY_PREFIX + date);
-                if (saved) {
-                    const d = JSON.parse(saved);
-                    setTodayPlans(d.todayPlans || []);
-                    setTomorrowPlans(d.tomorrowPlans || []);
-                    setMainTheme(d.mainTheme || '');
-                } else {
-                    setTodayPlans([]); setTomorrowPlans([]); setMainTheme('');
-                }
-            };
-
             const handleSave = async () => {
-                const data = { todayPlans, tomorrowPlans, mainTheme, date: currentDate };
+                const data = { ...formData, updatedAt: Date.now() };
                 localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
-                message.loading({ content: '同步中...', key: 'save' });
+                setSyncLoading(true);
                 const { error } = await supabaseService.saveReview(currentDate, data);
-                if (error) message.warning({ content: '本地已存，云端同步失败', key: 'save' });
-                else message.success({ content: '已同步至云端', key: 'save' });
+                setSyncLoading(false);
+                if (error) message.warning('本地已存，云端同步失败'); else message.success('已同步至云端');
             };
 
             const handlePull = async () => {
-                message.loading({ content: '获取中...', key: 'pull' });
+                setSyncLoading(true);
                 const { data, error } = await supabaseService.getReview(currentDate);
-                if (error) message.error({ content: '获取失败', key: 'pull' });
-                else if (!data) message.info({ content: '云端暂无数据', key: 'pull' });
+                setSyncLoading(false);
+                if (error) message.error('拉取失败');
+                else if (!data) message.info('云端暂无数据');
                 else {
-                    setTodayPlans(data.todayPlans || []);
-                    setTomorrowPlans(data.tomorrowPlans || []);
-                    setMainTheme(data.mainTheme || '');
-                    message.success({ content: '已同步云端数据', key: 'pull' });
+                    Modal.confirm({
+                        title: '确认覆盖本地数据?',
+                        onOk: () => {
+                            setTodayPlans(data.todayPlans || []); setTomorrowPlans(data.tomorrowPlans || []);
+                            setMainTheme(data.mainTheme || null); setMainThemeNote(data.mainThemeNote || '');
+                            setSubTheme(data.subTheme || null); setSubThemeNote(data.subThemeNote || '');
+                            localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
+                            lastLoadedDataStr.current = JSON.stringify(data);
+                        }
+                    });
                 }
+            };
+
+            const loadHistory = async () => {
+                const { data } = await supabaseService.getAllReviews();
+                let list = data || [];
+                if (list.length === 0) {
+                    list = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => JSON.parse(localStorage.getItem(k))).sort((a,b) => b.date.localeCompare(a.date));
+                }
+                setHistoryList(list);
+                setIsHistoryOpen(true);
+            };
+
+            const exportData = () => {
+                const all = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => JSON.parse(localStorage.getItem(k)));
+                const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `review_backup_${currentDate}.json`;
+                a.click();
             };
 
             return (
@@ -159,36 +275,69 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                         <Title level={3} style={{ margin: 0 }}>📅 每日结构化复盘</Title>
                         <Space>
-                            <Button icon={<CloudDownloadOutlined />} onClick={handlePull}>拉取</Button>
-                            <Button icon={<ExportOutlined />} onClick={() => message.info('功能开发中')}>导出</Button>
+                            {isAutoSaving && <Text type="secondary" style={{ fontSize: 12 }}><Spin size="small" /> 自动保存中...</Text>}
+                            <Button icon={<CloudDownloadOutlined />} onClick={handlePull} loading={syncLoading}>云端拉取</Button>
+                            <Button icon={<SettingOutlined />} onClick={() => setIsSettingsOpen(true)}>设置</Button>
+                            <Button icon={<ExportOutlined />} onClick={exportData}>导出</Button>
+                            <Button icon={<HistoryOutlined />} onClick={loadHistory} type="primary" ghost>历史</Button>
                         </Space>
                     </div>
 
-                    <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
-                        <Button icon={<LeftOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).subtract(1, 'day').format('YYYY-MM-DD'))} />
-                        <DatePicker value={dayjs(currentDate)} onChange={d => setCurrentDate(d.format('YYYY-MM-DD'))} allowClear={false} style={{ flex: 1 }} />
-                        <Button icon={<RightOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).add(1, 'day').format('YYYY-MM-DD'))} />
+                    <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Space>
+                            <Button icon={<LeftOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).subtract(1, 'day').format('YYYY-MM-DD'))} />
+                            <DatePicker value={dayjs(currentDate)} onChange={d => setCurrentDate(d.format('YYYY-MM-DD'))} allowClear={false} />
+                            <Button icon={<RightOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).add(1, 'day').format('YYYY-MM-DD'))} />
+                        </Space>
+                        <Progress type="circle" percent={completionRate} size={40} strokeColor={completionRate === 100 ? '#52c41a' : '#fa8c16'} />
                     </div>
 
-                    <PlanList title="1. 今日计划完成情况" items={todayPlans} onChange={setTodayPlans} />
-                    <PlanList title="2. 明日计划事项" items={tomorrowPlans} onChange={setTomorrowPlans} isTomorrow />
-                    
-                    <div className="section-title">3. 主题觉察</div>
-                    <TextArea rows={4} placeholder="写下今天的感悟..." value={mainTheme} onChange={e => setMainTheme(e.target.value)} />
+                    <Spin spinning={loading}>
+                        <PlanList title="1. 今日计划完成情况" items={todayPlans} onChange={setTodayPlans} />
+                        <PlanList title="2. 明日计划事项" items={tomorrowPlans} onChange={setTomorrowPlans} isTomorrow />
+                        
+                        <div className="section-title">3. 主题觉察</div>
+                        <div style={{ marginBottom: 16 }}>
+                            <Text strong>主主题</Text>
+                            <Select style={{ width: '100%', margin: '8px 0' }} options={themes.map(t=>({label:t,value:t}))} value={mainTheme} onChange={setMainTheme} placeholder="选择主主题" allowClear />
+                            <TextArea rows={3} placeholder="输入主主题感悟..." value={mainThemeNote} onChange={e => setMainThemeNote(e.target.value)} />
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                            <Text strong>副主题</Text>
+                            <Select style={{ width: '100%', margin: '8px 0' }} options={themes.map(t=>({label:t,value:t}))} value={subTheme} onChange={setSubTheme} placeholder="选择副主题" allowClear />
+                            <TextArea rows={3} placeholder="输入副主题感悟..." value={subThemeNote} onChange={e => setSubThemeNote(e.target.value)} />
+                        </div>
 
-                    <Button type="primary" block size="large" onClick={handleSave} style={{ marginTop: 24, height: 50, fontSize: 18 }} icon={<CheckCircleOutlined />}>
-                        提 交 复 盘
-                    </Button>
+                        <Button type="primary" block size="large" onClick={handleSave} style={{ marginTop: 24, height: 50, fontSize: 18 }} icon={<CheckCircleOutlined />}>提交复盘</Button>
+                    </Spin>
+
+                    <Modal title="历史记录" open={isHistoryOpen} onCancel={() => setIsHistoryOpen(false)} footer={null}>
+                        <List dataSource={historyList} renderItem={item => (
+                            <List.Item className="history-item" onClick={() => { setCurrentDate(item.date); setIsHistoryOpen(false); }}>
+                                <div style={{ width: '100%' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <Text strong>{item.date}</Text>
+                                        <Tag color="orange">{item.mainTheme}</Tag>
+                                    </div>
+                                    <Text type="secondary" size="small">完成率: {Math.round((item.todayPlans?.filter(p=>p.done).length / (item.todayPlans?.length || 1)) * 100)}%</Text>
+                                </div>
+                            </List.Item>
+                        )} />
+                    </Modal>
+
+                    <Modal title="主题设置" open={isSettingsOpen} onCancel={() => setIsSettingsOpen(false)} onOk={() => setIsSettingsOpen(false)}>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                            <Input placeholder="新主题" value={newThemeInput} onChange={e => setNewThemeInput(e.target.value)} onPressEnter={() => { if(newThemeInput) { const nt = [...themes, newThemeInput]; setThemes(nt); localStorage.setItem(THEMES_KEY, JSON.stringify(nt)); setNewThemeInput(''); } }} />
+                            <Button type="primary" onClick={() => { if(newThemeInput) { const nt = [...themes, newThemeInput]; setThemes(nt); localStorage.setItem(THEMES_KEY, JSON.stringify(nt)); setNewThemeInput(''); } }}>添加</Button>
+                        </div>
+                        <Space wrap>{themes.map(t => <Tag key={t} closable onClose={() => { const nt = themes.filter(x => x !== t); setThemes(nt); localStorage.setItem(THEMES_KEY, JSON.stringify(nt)); }}>{t}</Tag>)}</Space>
+                    </Modal>
                 </div>
             );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(
-            <antd.ConfigProvider theme={{ token: { colorPrimary: '#fa8c16' } }}>
-                <App />
-            </antd.ConfigProvider>
-        );
+        root.render(<antd.ConfigProvider theme={{ token: { colorPrimary: '#fa8c16' } }}><App /></antd.ConfigProvider>);
     </script>
 </body>
 </html>
