@@ -5,18 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://cdn.staticfile.net">
     <title>每日结构化复盘</title>
-    <!-- React & ReactDOM -->
+    <!-- 核心库 (全部使用国内高速镜像) -->
     <script src="https://cdn.staticfile.net/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdn.staticfile.net/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-    <!-- Babel -->
     <script src="https://cdn.staticfile.net/babel-standalone/7.23.5/babel.min.js"></script>
-    <!-- Day.js -->
     <script src="https://cdn.staticfile.net/dayjs/1.11.10/dayjs.min.js"></script>
-    <!-- Ant Design -->
     <link rel="stylesheet" href="https://cdn.staticfile.net/antd/5.14.0/reset.min.css">
     <script src="https://cdn.staticfile.net/antd/5.14.0/antd.min.js"></script>
     <script src="https://cdn.staticfile.net/ant-design-icons/5.2.6/index.umd.min.js"></script>
-    <!-- Supabase -->
     <script src="https://cdn.staticfile.net/supabase/2.39.3/supabase.min.js"></script>
     
     <style>
@@ -34,7 +30,7 @@
         .section-title { margin-top: 24px; margin-bottom: 16px; font-weight: bold; font-size: 16px; border-left: 4px solid #fa8c16; padding-left: 8px; color: #595959; }
         .plan-item { display: flex; align-items: flex-start; margin-bottom: 8px; gap: 8px; }
         .plan-item .ant-checkbox-wrapper { margin-top: 5px; }
-        .history-item:hover { background-color: #fff7e6; transition: background-color 0.3s; }
+        .history-item:hover { background-color: #fff7e6; transition: background-color 0.3s; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -52,11 +48,14 @@
     </div>
 
     <script type="text/babel">
+        // 紧急纠错：确保图标库正确加载
+        const Icons = window.icons || {};
+        const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined, CloudDownloadOutlined } = Icons;
+
         const { useState, useEffect, useMemo, useRef } = React;
         const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Spin } = antd;
         const { Title, Text } = Typography;
         const { TextArea } = Input;
-        const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined, CloudDownloadOutlined } = icons;
 
         const SUPABASE_URL = 'https://usytwmlxzyzryzwwfzig.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzeXR3bWx4enl6cnl6d3dmemlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk2OTAyNjQsImV4cCI6MjA4NTI2NjI2NH0.ZIqSJZN91Ncu5FGCp4kwHjrOR-2hWeGjVtPiBsTWqCY';
@@ -65,7 +64,7 @@
         const getDeviceId = () => {
             let id = localStorage.getItem('daily_review_device_id');
             if (!id) {
-                id = crypto.randomUUID();
+                id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
                 localStorage.setItem('daily_review_device_id', id);
             }
             return id;
@@ -73,18 +72,22 @@
 
         const supabaseService = {
             async saveReview(date, data) {
-                const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                return await client.from('daily_reviews').upsert({ date, user_id: getDeviceId(), content: data, updated_at: new Date().toISOString() }, { onConflict: 'date,user_id' });
+                try {
+                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    return await client.from('daily_reviews').upsert({ 
+                        date, 
+                        user_id: getDeviceId(), 
+                        content: data, 
+                        updated_at: new Date().toISOString() 
+                    }, { onConflict: 'date,user_id' });
+                } catch(e) { return { error: e }; }
             },
             async getReview(date) {
-                const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).eq('user_id', getDeviceId()).maybeSingle();
-                return { data: data?.content, error };
-            },
-            async getAllReviews() {
-                const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false });
-                return { data: data?.map(d => d.content), error };
+                try {
+                    const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).eq('user_id', getDeviceId()).maybeSingle();
+                    return { data: data?.content, error };
+                } catch(e) { return { error: e }; }
             }
         };
 
@@ -95,10 +98,11 @@
                     <div key={item.id} className="plan-item">
                         {!isTomorrow && <Checkbox checked={item.done} onChange={e => onChange(items.map(i => i.id === item.id ? {...i, done: e.target.checked} : i))} />}
                         <Input value={item.text} placeholder="事项内容" onChange={e => onChange(items.map(i => i.id === item.id ? {...i, text: e.target.value} : i))} />
-                        {isTomorrow && <Button type="text" danger onClick={() => onChange(items.filter(i => i.id !== item.id))}>删除</Button>}
+                        {isTomorrow && <Button type="text" danger onClick={() => onChange(items.filter(i => i.id !== item.id))} icon={<DeleteOutlined />} />}
                     </div>
                 ))}
-                {isTomorrow && <Button type="dashed" block onClick={() => onChange([...items, {id: Date.now().toString(), text: '', done: false}])}>+ 添加</Button>}
+                {isTomorrow && <Button type="dashed" block onClick={() => onChange([...items, {id: Date.now().toString(), text: '', done: false}])} icon={<PlusOutlined />}>添加计划</Button>}
+                {!isTomorrow && items.length === 0 && <Empty description="今日暂无计划" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
             </div>
         );
 
@@ -113,36 +117,78 @@
                 const skeleton = document.getElementById('static-skeleton');
                 if (skeleton) skeleton.style.display = 'none';
                 setLoading(false);
-            }, []);
+                loadLocalData(currentDate);
+            }, [currentDate]);
+
+            const loadLocalData = (date) => {
+                const saved = localStorage.getItem(STORAGE_KEY_PREFIX + date);
+                if (saved) {
+                    const d = JSON.parse(saved);
+                    setTodayPlans(d.todayPlans || []);
+                    setTomorrowPlans(d.tomorrowPlans || []);
+                    setMainTheme(d.mainTheme || '');
+                } else {
+                    setTodayPlans([]); setTomorrowPlans([]); setMainTheme('');
+                }
+            };
 
             const handleSave = async () => {
                 const data = { todayPlans, tomorrowPlans, mainTheme, date: currentDate };
                 localStorage.setItem(STORAGE_KEY_PREFIX + currentDate, JSON.stringify(data));
+                message.loading({ content: '同步中...', key: 'save' });
                 const { error } = await supabaseService.saveReview(currentDate, data);
-                if (error) message.error('同步失败'); else message.success('已同步');
+                if (error) message.warning({ content: '本地已存，云端同步失败', key: 'save' });
+                else message.success({ content: '已同步至云端', key: 'save' });
+            };
+
+            const handlePull = async () => {
+                message.loading({ content: '获取中...', key: 'pull' });
+                const { data, error } = await supabaseService.getReview(currentDate);
+                if (error) message.error({ content: '获取失败', key: 'pull' });
+                else if (!data) message.info({ content: '云端暂无数据', key: 'pull' });
+                else {
+                    setTodayPlans(data.todayPlans || []);
+                    setTomorrowPlans(data.tomorrowPlans || []);
+                    setMainTheme(data.mainTheme || '');
+                    message.success({ content: '已同步云端数据', key: 'pull' });
+                }
             };
 
             return (
                 <div className="container">
-                    <Title level={3}>📅 每日结构化复盘</Title>
-                    <div style={{ marginBottom: 20, display: 'flex', gap: 10 }}>
-                        <DatePicker value={dayjs(currentDate)} onChange={d => setCurrentDate(d.format('YYYY-MM-DD'))} allowClear={false} />
-                        <Button onClick={() => {
-                            const saved = localStorage.getItem(STORAGE_KEY_PREFIX + currentDate);
-                            if (saved) { const d = JSON.parse(saved); setTodayPlans(d.todayPlans); setTomorrowPlans(d.tomorrowPlans); setMainTheme(d.mainTheme); }
-                        }}>加载本地</Button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                        <Title level={3} style={{ margin: 0 }}>📅 每日结构化复盘</Title>
+                        <Space>
+                            <Button icon={<CloudDownloadOutlined />} onClick={handlePull}>拉取</Button>
+                            <Button icon={<ExportOutlined />} onClick={() => message.info('功能开发中')}>导出</Button>
+                        </Space>
                     </div>
-                    <PlanList title="今日计划" items={todayPlans} onChange={setTodayPlans} />
-                    <PlanList title="明日计划" items={tomorrowPlans} onChange={setTomorrowPlans} isTomorrow />
-                    <div className="section-title">主题觉察</div>
-                    <TextArea rows={4} value={mainTheme} onChange={e => setMainTheme(e.target.value)} />
-                    <Button type="primary" block size="large" onClick={handleSave} style={{ marginTop: 20 }}>提交复盘</Button>
+
+                    <div style={{ background: '#fff7e6', padding: 16, borderRadius: 8, marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <Button icon={<LeftOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).subtract(1, 'day').format('YYYY-MM-DD'))} />
+                        <DatePicker value={dayjs(currentDate)} onChange={d => setCurrentDate(d.format('YYYY-MM-DD'))} allowClear={false} style={{ flex: 1 }} />
+                        <Button icon={<RightOutlined />} onClick={() => setCurrentDate(dayjs(currentDate).add(1, 'day').format('YYYY-MM-DD'))} />
+                    </div>
+
+                    <PlanList title="1. 今日计划完成情况" items={todayPlans} onChange={setTodayPlans} />
+                    <PlanList title="2. 明日计划事项" items={tomorrowPlans} onChange={setTomorrowPlans} isTomorrow />
+                    
+                    <div className="section-title">3. 主题觉察</div>
+                    <TextArea rows={4} placeholder="写下今天的感悟..." value={mainTheme} onChange={e => setMainTheme(e.target.value)} />
+
+                    <Button type="primary" block size="large" onClick={handleSave} style={{ marginTop: 24, height: 50, fontSize: 18 }} icon={<CheckCircleOutlined />}>
+                        提 交 复 盘
+                    </Button>
                 </div>
             );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(
+            <antd.ConfigProvider theme={{ token: { colorPrimary: '#fa8c16' } }}>
+                <App />
+            </antd.ConfigProvider>
+        );
     </script>
 </body>
 </html>
