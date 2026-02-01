@@ -354,7 +354,18 @@
             };
 
             const exportData = () => {
-                const all = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => JSON.parse(localStorage.getItem(k)));
+                const all = Object.keys(localStorage)
+                    .filter(k => k.startsWith(STORAGE_KEY_PREFIX))
+                    .map(k => {
+                        try {
+                            return JSON.parse(localStorage.getItem(k));
+                        } catch (e) {
+                            console.warn('Failed to parse item:', k);
+                            return null;
+                        }
+                    })
+                    .filter(item => item !== null); // 过滤掉解析失败的项
+                
                 const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
