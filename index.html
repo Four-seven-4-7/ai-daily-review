@@ -116,6 +116,7 @@
         };
 
         const supabaseService = {
+            _client: null,
             getClient() {
                 // 兼容不同的 CDN 导出名称
                 const sb = window.supabase || window.Supabase;
@@ -123,11 +124,18 @@
                 console.error('Supabase SDK not loaded - available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('supabase')));
                 return null;
             },
+            createClientInstance() {
+                if (this._client) return this._client;
+                const sb = this.getClient();
+                if (!sb) return null;
+                // 单例模式：只创建一次客户端实例，避免 GoTrueClient 重复警告
+                this._client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                return this._client;
+            },
             async saveReview(date, data) {
                 try {
-                    const sb = this.getClient();
-                    if (!sb) throw new Error('云端服务未就绪(SDK加载失败)');
-                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const client = this.createClientInstance();
+                    if (!client) throw new Error('云端服务未就绪(SDK加载失败)');
                     return await client.from('daily_reviews').upsert({ 
                         date, user_id: getDeviceId(), content: data, updated_at: new Date().toISOString() 
                     }, { onConflict: 'date,user_id' });
@@ -135,27 +143,24 @@
             },
             async getReview(date) {
                 try {
-                    const sb = this.getClient();
-                    if (!sb) throw new Error('云端服务未就绪');
-                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const client = this.createClientInstance();
+                    if (!client) throw new Error('云端服务未就绪');
                     const { data, error } = await client.from('daily_reviews').select('*').eq('date', date).eq('user_id', getDeviceId()).maybeSingle();
                     return { data: data?.content, error };
                 } catch(e) { return { error: e }; }
             },
             async getAllReviews(limit = 100) {
                 try {
-                    const sb = this.getClient();
-                    if (!sb) throw new Error('云端服务未就绪');
-                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const client = this.createClientInstance();
+                    if (!client) throw new Error('云端服务未就绪');
                     const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false }).limit(limit);
                     return { data: data?.map(d => d.content), error };
                 } catch(e) { return { error: e }; }
             },
             async getAIKey() {
                 try {
-                    const sb = this.getClient();
-                    if (!sb) throw new Error('云端服务未就绪');
-                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const client = this.createClientInstance();
+                    if (!client) throw new Error('云端服务未就绪');
                     const { data, error } = await client.from('user_settings').select('value').eq('key', 'moonshot_api_key').maybeSingle();
                     return { apiKey: data?.value, error };
                 } catch(e) { return { error: e }; }
