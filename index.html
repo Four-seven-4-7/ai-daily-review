@@ -419,24 +419,28 @@
 3. 给出1-2条可落地的优化建议（避免空泛）。
 语言简洁，分点呈现，总字数不超过200字。`;
 
-                    // 4. Call ModelScope API (Anthropic compatible)
-                    const response = await fetch('https://api-inference.modelscope.cn/v1/messages', {
+                    // 4. Call ModelScope API
+                    // 使用 Qwen2.5-7B-Instruct，这是魔搭社区最稳定且限流较松的模型
+                    const response = await fetch('https://api-inference.modelscope.cn/v1/chat/completions', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'x-api-key': apiKey,
-                            'anthropic-version': '2023-06-01'
+                            'Authorization': `Bearer ${apiKey}`
                         },
                         body: JSON.stringify({
-                            model: "ZhipuAI/GLM-4.7-Flash",
+                            model: "qwen/Qwen2.5-7B-Instruct", 
                             max_tokens: 1024,
-                            system: systemPrompt,
                             messages: [
+                                { role: "system", content: systemPrompt },
                                 { role: "user", content: `以下是最近 ${days} 天的复盘数据：\n${reviewsText}` }
                             ],
                             temperature: 0.3
                         })
                     });
+
+                    if (response.status === 429) {
+                        throw new Error('当前分析请求过多（429），请稍等 1 分钟后再试。魔搭社区免费额度有限，建议避开高峰期。');
+                    }
 
                     if (!response.ok) {
                         const err = await response.json();
@@ -445,8 +449,8 @@
                     }
 
                     const result = await response.json();
-                    // Anthropic format: result.content[0].text
-                    setAiResult(result.content[0].text);
+                    // OpenAI format: result.choices[0].message.content
+                    setAiResult(result.choices[0].message.content);
 
                 } catch (e) {
                     message.error(e.message);
