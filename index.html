@@ -79,9 +79,10 @@
         const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined, CloudDownloadOutlined } = Icons;
 
         const { useState, useEffect, useMemo, useRef } = React;
-        const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Spin, Tooltip } = antd;
-        const { Title, Text } = Typography;
+        const { Button, Input, Checkbox, Select, message, Typography, Card, Empty, Modal, List, Tag, DatePicker, Progress, Space, Spin, Tooltip, Radio } = antd;
+        const { Title, Text, Paragraph } = Typography;
         const { TextArea } = Input;
+        const { SettingOutlined, HistoryOutlined, ExportOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, LeftOutlined, RightOutlined, CloudDownloadOutlined, BulbOutlined } = Icons;
 
         // --- Config ---
         const SUPABASE_URL = 'https://usytwmlxzyzryzwwfzig.supabase.co';
@@ -142,13 +143,22 @@
                     return { data: data?.content, error };
                 } catch(e) { return { error: e }; }
             },
-            async getAllReviews() {
+            async getAllReviews(limit = 100) {
                 try {
                     const sb = this.getClient();
                     if (!sb) throw new Error('云端服务未就绪');
                     const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-                    const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false });
+                    const { data, error } = await client.from('daily_reviews').select('*').eq('user_id', getDeviceId()).order('date', { ascending: false }).limit(limit);
                     return { data: data?.map(d => d.content), error };
+                } catch(e) { return { error: e }; }
+            },
+            async getAIKey() {
+                try {
+                    const sb = this.getClient();
+                    if (!sb) throw new Error('云端服务未就绪');
+                    const client = sb.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    const { data, error } = await client.from('user_settings').select('value').eq('key', 'moonshot_api_key').maybeSingle();
+                    return { apiKey: data?.value, error };
                 } catch(e) { return { error: e }; }
             }
         };
@@ -195,6 +205,12 @@
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [newThemeInput, setNewThemeInput] = useState('');
             const [status, setStatus] = useState('就绪');
+            
+            // AI Analysis State
+            const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+            const [aiDateRange, setAiDateRange] = useState('7'); // '7', '30'
+            const [aiLoading, setAiLoading] = useState(false);
+            const [aiResult, setAiResult] = useState('');
 
             const completionRate = useMemo(() => {
                 if (todayPlans.length === 0) return 0;
@@ -347,6 +363,78 @@
                 a.click();
             };
 
+            const handleAIAnalysis = async () => {
+                setAiLoading(true);
+                setAiResult('');
+                try {
+                    // 1. Fetch API Key
+                    const { apiKey, error: keyError } = await supabaseService.getAIKey();
+                    if (keyError || !apiKey) throw new Error('无法获取 AI 配置，请检查网络或联系管理员。');
+
+                    // 2. Fetch Data
+                    const days = parseInt(aiDateRange);
+                    const endDate = dayjs();
+                    const startDate = endDate.subtract(days, 'day');
+                    const { data: reviews, error: reviewError } = await supabaseService.getAllReviews(days + 5); // Fetch a bit more to be safe
+                    
+                    if (reviewError) throw new Error('获取复盘数据失败');
+                    if (!reviews || reviews.length === 0) throw new Error('近 ' + days + ' 天内暂无复盘数据，无法分析。');
+
+                    // Filter by date range
+                    const targetReviews = reviews.filter(r => {
+                        const d = dayjs(r.date);
+                        return d.isAfter(startDate) && d.isBefore(endDate.add(1, 'day'));
+                    });
+
+                    if (targetReviews.length === 0) throw new Error('所选范围内无有效复盘数据。');
+
+                    // 3. Construct Prompt
+                    const reviewsText = targetReviews.map(r => `
+日期: ${r.date}
+待办完成情况: ${r.todayPlans?.map(p => `- ${p.text} (${p.done ? '已完成' : '未完成'})`).join('; ')}
+主主题: ${r.mainTheme || '无'} (${r.mainThemeNote || ''})
+副主题: ${r.subTheme || '无'} (${r.subThemeNote || ''})
+                    `).join('\n---\n');
+
+                    const systemPrompt = `你是专业的个人复盘分析师，专注于从每日复盘记录中提炼价值。请基于用户提供的一段周期内的复盘内容（含待办完成、自我觉察、身体状态），完成3件事：
+1. 总结核心行为规律（如“周三易疲劳”“待办完成率80%”）；
+2. 指出未被注意的潜在问题（如“多次提到‘拖延’，可能需要拆分任务”）；
+3. 给出1-2条可落地的优化建议（避免空泛）。
+语言简洁，分点呈现，总字数不超过200字。`;
+
+                    // 4. Call Moonshot API
+                    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: "moonshot-v1-8k",
+                            messages: [
+                                { role: "system", content: systemPrompt },
+                                { role: "user", content: `以下是最近 ${days} 天的复盘数据：\n${reviewsText}` }
+                            ],
+                            temperature: 0.3
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.error?.message || 'AI 服务响应异常');
+                    }
+
+                    const result = await response.json();
+                    setAiResult(result.choices[0].message.content);
+
+                } catch (e) {
+                    message.error(e.message);
+                    setAiResult('分析失败: ' + e.message);
+                } finally {
+                    setAiLoading(false);
+                }
+            };
+
             return (
                 <div className="container">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -354,6 +442,7 @@
                         <Space>
                             {isAutoSaving && <Text type="secondary" style={{ fontSize: 12 }}><Spin size="small" /> 自动保存中...</Text>}
                             <Text type="secondary" style={{ fontSize: 12, marginRight: 10 }}>{status}</Text>
+                            <Button icon={<BulbOutlined />} type="dashed" style={{ borderColor: '#722ed1', color: '#722ed1' }} onClick={() => setIsAIModalOpen(true)}>AI 洞察</Button>
                             <Button icon={<CloudDownloadOutlined />} onClick={handlePull} loading={syncLoading}>云端拉取</Button>
                             <Button icon={<SettingOutlined />} onClick={() => setIsSettingsOpen(true)}>设置</Button>
                             <Button icon={<ExportOutlined />} onClick={exportData}>导出</Button>
@@ -401,6 +490,33 @@
                                 </div>
                             </List.Item>
                         )} />
+                    </Modal>
+
+                    <Modal title="✨ AI 智能复盘洞察" open={isAIModalOpen} onCancel={() => setIsAIModalOpen(false)} footer={null} width={700}>
+                        <div style={{ marginBottom: 20 }}>
+                            <Text strong>分析周期：</Text>
+                            <Radio.Group value={aiDateRange} onChange={e => setAiDateRange(e.target.value)} buttonStyle="solid">
+                                <Radio.Button value="7">近 7 天</Radio.Button>
+                                <Radio.Button value="30">近 30 天</Radio.Button>
+                            </Radio.Group>
+                            <Button type="primary" icon={<BulbOutlined />} onClick={handleAIAnalysis} loading={aiLoading} style={{ marginLeft: 16, background: '#722ed1' }}>
+                                生成分析报告
+                            </Button>
+                        </div>
+                        
+                        {aiLoading && <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="AI 正在深度分析您的复盘数据..." size="large" /></div>}
+                        
+                        {!aiLoading && aiResult && (
+                            <Card style={{ background: '#f9f0ff', borderColor: '#d3adf7' }}>
+                                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8 }}>
+                                    {aiResult}
+                                </div>
+                            </Card>
+                        )}
+                        
+                        {!aiLoading && !aiResult && (
+                            <Empty description="选择周期并点击生成，发现您的行为规律" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        )}
                     </Modal>
 
                     <Modal title="主题设置" open={isSettingsOpen} onCancel={() => setIsSettingsOpen(false)} onOk={() => setIsSettingsOpen(false)}>
