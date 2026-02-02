@@ -149,6 +149,20 @@
                     return { data: data?.content, error };
                 } catch(e) { return { error: e }; }
             },
+            async getLatestReviewBefore(date) {
+                try {
+                    const client = this.createClientInstance();
+                    if (!client) throw new Error('云端服务未就绪');
+                    const { data, error } = await client.from('daily_reviews')
+                        .select('*')
+                        .eq('user_id', getDeviceId())
+                        .lt('date', date)
+                        .order('date', { ascending: false })
+                        .limit(1)
+                        .maybeSingle();
+                    return { data: data?.content, error };
+                } catch(e) { return { error: e }; }
+            },
             async getAllReviews(limit = 100) {
                 try {
                     const client = this.createClientInstance();
@@ -266,16 +280,33 @@
                         setSubTheme(d.subTheme || null); setSubThemeNote(d.subThemeNote || '');
                         lastLoadedDataStr.current = localStr;
                     } else {
-                        // Inheritance
-                        const keys = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => k.replace(STORAGE_KEY_PREFIX, '')).filter(d => d < currentDate).sort().reverse();
-                        if (keys.length > 0) {
-                            const lastData = JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + keys[0]));
-                            if (lastData.tomorrowPlans) setTodayPlans(lastData.tomorrowPlans.map(p => ({ ...p, id: Date.now() + Math.random(), done: false, note: '' })));
+                        // 1. 尝试从云端拉取今日数据
+                        const { data: cloudToday } = await supabaseService.getReview(currentDate);
+                        if (cloudToday) {
+                            setTodayPlans(cloudToday.todayPlans || []); setTomorrowPlans(cloudToday.tomorrowPlans || []);
+                            setMainTheme(cloudToday.mainTheme || null); setMainThemeNote(cloudToday.mainThemeNote || '');
+                            setSubTheme(cloudToday.subTheme || null); setSubThemeNote(cloudToday.subThemeNote || '');
+                            lastLoadedDataStr.current = JSON.stringify(cloudToday);
+                        } else {
+                            // 2. 尝试从云端继承 (获取上一条记录)
+                            const { data: lastCloudData } = await supabaseService.getLatestReviewBefore(currentDate);
+                            if (lastCloudData && lastCloudData.tomorrowPlans) {
+                                setTodayPlans(lastCloudData.tomorrowPlans.map(p => ({ ...p, id: Date.now() + Math.random(), done: false, note: '' })));
+                                if (lastCloudData.mainTheme) setMainTheme(lastCloudData.mainTheme);
+                                if (lastCloudData.subTheme) setSubTheme(lastCloudData.subTheme);
+                            } else {
+                                // 3. 兜底逻辑：从本地缓存继承
+                                const keys = Object.keys(localStorage).filter(k => k.startsWith(STORAGE_KEY_PREFIX)).map(k => k.replace(STORAGE_KEY_PREFIX, '')).filter(d => d < currentDate).sort().reverse();
+                                if (keys.length > 0) {
+                                    const lastData = JSON.parse(localStorage.getItem(STORAGE_KEY_PREFIX + keys[0]));
+                                    if (lastData.tomorrowPlans) setTodayPlans(lastData.tomorrowPlans.map(p => ({ ...p, id: Date.now() + Math.random(), done: false, note: '' })));
+                                }
+                                const meta = JSON.parse(localStorage.getItem(META_KEY) || '{}');
+                                if (meta.lastMainTheme) setMainTheme(meta.lastMainTheme);
+                                if (meta.lastSubTheme) setSubTheme(meta.lastSubTheme);
+                            }
+                            lastLoadedDataStr.current = JSON.stringify({});
                         }
-                        const meta = JSON.parse(localStorage.getItem(META_KEY) || '{}');
-                        if (meta.lastMainTheme) setMainTheme(meta.lastMainTheme);
-                        if (meta.lastSubTheme) setSubTheme(meta.lastSubTheme);
-                        lastLoadedDataStr.current = JSON.stringify({});
                     }
 
                     const skeleton = document.getElementById('static-skeleton');

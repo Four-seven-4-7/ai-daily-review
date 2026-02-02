@@ -1,0 +1,31 @@
+name: Daily Review Reminder
+
+on:
+  schedule:
+    # 每天 UTC 15:55 (北京时间 23:55) 触发
+    - cron: '55 15 * * *'
+  # 允许手动触发 (方便测试)
+  workflow_dispatch:
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run check script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          DEVICE_ID: ${{ secrets.DEVICE_ID }}
+        run: node scripts/daily_check.js
