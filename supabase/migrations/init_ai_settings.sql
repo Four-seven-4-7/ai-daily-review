@@ -15,7 +15,8 @@ ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Allow public read access" ON user_settings;
 CREATE POLICY "Allow public read access" ON user_settings FOR SELECT USING (true);
 
--- 4. 插入 API Key (如果存在则更新)
+-- 4. 插入 API Key (模板)
+-- 请将 'YOUR_MOONSHOT_API_KEY_HERE' 替换为真实的 Key，并在 Supabase SQL Editor 中执行
 INSERT INTO user_settings (key, value, description)
-VALUES ('moonshot_api_key', 'ms-00ce24c6-49ad-46e3-84a6-5bf105f78cc1', 'Moonshot AI API Key for Daily Review Analysis')
-ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+VALUES ('moonshot_api_key', 'YOUR_MOONSHOT_API_KEY_HERE', 'Moonshot AI API Key for Daily Review Analysis')
+ON CONFLICT (key) DO NOTHING;
