@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目路演：每日结构化复盘工具</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- AOS 动画库 -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <style>
+        :root { --primary: #fa8c16; --primary-light: #fff7e6; }
+        .text-primary { color: var(--primary); }
+        .bg-primary { background-color: var(--primary); }
+        .border-primary { border-color: var(--primary); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; scroll-behavior: smooth; }
+        .hero-bg {
+            background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('https://images.unsplash.com/photo-1519337265831-281ec6cc8514?auto=format&fit=crop&q=80&w=1200');
+            background-size: cover; background-position: center;
+        }
+        .concept-card { transition: all 0.3s ease; cursor: pointer; }
+        .concept-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(250, 140, 22, 0.1); }
+        .floating-btn {
+            position: fixed; bottom: 30px; right: 30px; z-index: 1000;
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <!-- 常驻悬浮入口 -->
+    <a href="https://four-seven-4-7.github.io/ai-daily-review/" class="floating-btn bg-primary text-white p-4 rounded-full shadow-lg flex items-center gap-2 hover:opacity-90 transition-opacity">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span class="font-bold">立即开启复盘</span>
+    </a>
+
+    <!-- Hero Section -->
+    <section class="hero-bg h-screen flex flex-col justify-center items-center text-white px-4">
+        <div class="text-center" data-aos="fade-up">
+            <h1 class="text-5xl md:text-7xl font-bold mb-6">📅 每日结构化复盘工具</h1>
+            <p class="text-xl md:text-2xl mb-10 text-gray-200">从“九点半”开始的深夜修行 · 碎片灵感的自动化流转</p>
+            <div class="flex gap-4 justify-center">
+                <a href="#intro" class="bg-primary hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-bold transition-colors">查看演示</a>
+                <a href="https://four-seven-4-7.github.io/ai-daily-review/" class="bg-white hover:bg-gray-100 text-primary px-8 py-3 rounded-lg font-bold transition-colors">进入应用</a>
+            </div>
+        </div>
+        <div class="absolute bottom-10 animate-bounce">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7-7-7" />
+            </svg>
+        </div>
+    </section>
+
+    <!-- Why: 痛点描述 -->
+    <section id="intro" class="py-24 px-4 max-w-6xl mx-auto">
+        <div class="grid md:grid-cols-2 gap-12 items-center">
+            <div data-aos="fade-right">
+                <h2 class="text-3xl font-bold mb-6 border-l-4 border-primary pl-4">为什么要做这个工具？</h2>
+                <p class="text-gray-600 leading-relaxed mb-6">
+                    作为一个 <strong>flomo</strong> 重度用户，每天有大量灵感，但“只记不看”让复盘变成了机械的搬运。以前，我需要手动复制、粘贴到 AI 窗口，浪费整整 30 分钟。
+                </p>
+                <div class="bg-primary-light p-6 rounded-xl border border-orange-100">
+                    <p class="italic text-primary">“既然无法逃避机械的搬运，那就用代码把它彻底自动化。”</p>
+                </div>
+            </div>
+            <div data-aos="zoom-in">
+                <img src="https://images.unsplash.com/photo-1484480974693-6ca0a78fb36b?auto=format&fit=crop&q=80&w=800" alt="Pain Point" class="rounded-2xl shadow-2xl">
+            </div>
+        </div>
+    </section>
+
+    <!-- What: 核心功能 -->
+    <section class="py-24 bg-white px-4">
+        <div class="max-w-6xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-16" data-aos="fade-up">核心功能与数据闭环</h2>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-gray-50 p-8 rounded-2xl" data-aos="fade-up" data-aos-delay="100">
+                    <div class="text-primary mb-4 text-4xl">🔄</div>
+                    <h3 class="text-xl font-bold mb-4">自动流转</h3>
+                    <p class="text-gray-600">昨日的“明日计划”在零点后自动变为今日的“待办事项”，实现跨天无缝衔接。</p>
+                </div>
+                <div class="bg-gray-50 p-8 rounded-2xl" data-aos="fade-up" data-aos-delay="200">
+                    <div class="text-primary mb-4 text-4xl">☁️</div>
+                    <h3 class="text-xl font-bold mb-4">全栈同步</h3>
+                    <p class="text-gray-600">基于 Supabase 实现实时云同步。LocalStorage 优先保存，确保数据在弱网下永不丢失。</p>
+                </div>
+                <div class="bg-gray-50 p-8 rounded-2xl" data-aos="fade-up" data-aos-delay="300">
+                    <div class="text-primary mb-4 text-4xl">🤖</div>
+                    <h3 class="text-xl font-bold mb-4">AI 深度洞察</h3>
+                    <p class="text-gray-600">接入 Qwen2.5 模型。不只是记录，更能从历史记录中提炼出你未曾发现的行为规律。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How: AI & Automation -->
+    <section class="py-24 px-4 max-w-6xl mx-auto">
+        <div class="text-center mb-16" data-aos="fade-up">
+            <h2 class="text-3xl font-bold mb-4">AI 赋能 · 飞书催填</h2>
+            <p class="text-gray-500">将 AI 的智能与自动化的提醒完美结合</p>
+        </div>
+        <div class="grid md:grid-cols-12 gap-12 items-start">
+            <!-- 左侧 AI 复盘图：占据 7/12 宽度 -->
+            <div class="md:col-span-7 relative group" data-aos="fade-right">
+                <img src="screen/screenshot_02.png" alt="AI Analysis" class="w-full rounded-xl shadow-lg group-hover:opacity-90 transition-opacity">
+                <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black bg-opacity-40 rounded-xl">
+                    <span class="text-white font-bold">查看 AI 分析报告</span>
+                </div>
+                <p class="mt-4 text-center font-bold">自动化 AI 洞察报告</p>
+            </div>
+            <!-- 右侧飞书图：占据 5/12 宽度，并进行视觉裁剪 -->
+            <div class="md:col-span-5 relative group" data-aos="fade-left">
+                <div class="overflow-hidden rounded-xl shadow-lg h-[450px] md:h-[500px]">
+                    <img src="screen/screenshot_05.jpg" alt="Feishu Notification" class="w-full object-cover object-top">
+                </div>
+                <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black bg-opacity-40 rounded-xl">
+                    <span class="text-white font-bold">飞书定时提醒</span>
+                </div>
+                <p class="mt-4 text-center font-bold">GitHub Actions 定时推送</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Deep: 核心理念 -->
+    <section class="py-24 bg-gray-900 text-white px-4">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-16" data-aos="fade-up">未来的进阶：冰山与道法术</h2>
+            <div class="space-y-8">
+                <!-- 冰山体系 -->
+                <div class="concept-card border-l-4 border-primary p-6 bg-gray-800 rounded-r-xl" onclick="toggleConcept('iceberg')" data-aos="fade-left">
+                    <h3 class="text-xl font-bold flex justify-between items-center">
+                        🧊 冰山体系 (Self)
+                        <span id="iceberg-icon">▼</span>
+                    </h3>
+                    <div id="iceberg-content" class="mt-4 text-gray-400 hidden">
+                        不止记录事实，更要记录关于自身的关系、幸福感与情绪瞬间。我希望 AI 能自动辨识并归类记录这些情绪快照，构建个人的情绪档案。
+                    </div>
+                </div>
+                <!-- 道法术 -->
+                <div class="concept-card border-l-4 border-green-500 p-6 bg-gray-800 rounded-r-xl" onclick="toggleConcept('method')" data-aos="fade-right">
+                    <h3 class="text-xl font-bold flex justify-between items-center">
+                        🌿 道·法·术 (World)
+                        <span id="method-icon">▼</span>
+                    </h3>
+                    <div id="method-content" class="mt-4 text-gray-400 hidden">
+                        将世界道理结构化。
+                        <br><span class="text-white font-bold">道：</span> 规律与原理（如决策能耗陷阱）。
+                        <br><span class="text-white font-bold">法：</span> 相应的方法论。
+                        <br><span class="text-white font-bold">术：</span> 即可执行的操作（如设定决策 Deadline）。
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-24 bg-white text-center">
+        <div data-aos="zoom-in">
+            <h2 class="text-3xl font-bold mb-8">准备好让复盘变得更有趣了吗？</h2>
+            <a href="https://four-seven-4-7.github.io/ai-daily-review/" class="bg-primary hover:bg-orange-600 text-white px-12 py-4 rounded-xl font-bold text-xl shadow-lg transition-all inline-block">
+                立即开启我的复盘之旅
+            </a>
+            <div class="mt-16 text-gray-400 text-sm">
+                © 2026 AI 编程课程作业 · 极简 · 结构化 · 治愈
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // 初始化 AOS
+        AOS.init({ duration: 1000, once: true });
+
+        // 概念展开逻辑
+        function toggleConcept(id) {
+            const content = document.getElementById(id + '-content');
+            const icon = document.getElementById(id + '-icon');
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.textContent = '▲';
+            } else {
+                content.classList.add('hidden');
+                icon.textContent = '▼';
+            }
+        }
+    </script>
+</body>
+</html>
